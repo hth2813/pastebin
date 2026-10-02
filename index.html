@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Plain Paste</title>
+<style>
+  :root { --bg:#fafafa; --fg:#1a1a1a; --muted:#6b6b6b; --line:#ddd; --card:#fff; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111; --fg:#eee; --muted:#999; --line:#333; --card:#1a1a1a; --accent:#60a5fa; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:900px; margin:0 auto; padding:24px 16px; display:flex; flex-direction:column; gap:12px; height:100vh; height:100dvh; }
+  header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  h1 { font-size:18px; margin:0; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button { font:inherit; padding:6px 12px; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:6px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  label { color:var(--muted); font-size:13px; display:flex; gap:4px; align-items:center; cursor:pointer; }
+  textarea { flex:1; min-height:200px; width:100%; resize:none; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); font:14px/1.6 ui-monospace, Consolas, monospace; white-space:pre-wrap; }
+  textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .status { color:var(--muted); font-size:13px; min-height:1.5em; }
+  details { font-size:13px; color:var(--muted); }
+  #history { max-height:140px; overflow:auto; margin-top:6px; display:flex; flex-direction:column; gap:4px; }
+  #history div { display:flex; gap:8px; align-items:center; }
+  #history button { padding:2px 8px; font-size:12px; }
+  #history span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; color:var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Plain Paste</h1>
+    <div class="bar">
+      <label><input type="checkbox" id="autocopy" checked> Tự copy sau khi paste</label>
+      <label><input type="checkbox" id="clean" checked> Dọn ký tự lạ</label>
+      <button id="copy" class="primary">Copy</button>
+      <button id="save">Lưu</button>
+      <button id="clear">Xoá</button>
+    </div>
+  </header>
+  <textarea id="t" placeholder="Paste vào đây (Ctrl+V). Mọi định dạng sẽ bị bỏ, chỉ còn chữ trơn." autofocus spellcheck="false"></textarea>
+  <div class="status" id="status"></div>
+  <details>
+    <summary>Đã lưu (chỉ trong trình duyệt này)</summary>
+    <div id="history"></div>
+  </details>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const t = $('t'), status = $('status');
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+function normalize(s) {
+  if (!$('clean').checked) return s;
+  return s
+    .replace(/\r\n?/g, '\n')
+    .replace(/[​-‍⁠﻿]/g, '')   // zero-width
+    .replace(/[  -   　]/g, ' ') // exotic spaces
+    .replace(/[ \t]+$/gm, '');                       // trailing spaces
+}
+function say(msg) { status.textContent = msg; clearTimeout(say.t); say.t = setTimeout(() => status.textContent = '', 2500); }
+async function copy() {
+  try { await navigator.clipboard.writeText(t.value); say('Đã copy chữ trơn'); }
+  catch { t.select(); document.execCommand('copy'); say('Đã copy'); }
+}
+
+t.addEventListener('paste', e => {
+  const text = e.clipboardData.getData('text/plain');
+  if (text === '' && !e.clipboardData.types.includes('text/plain')) return; // e.g. image only
+  e.preventDefault();
+  const clean = normalize(text);
+  const { selectionStart: a, selectionEnd: b } = t;
+  t.setRangeText(clean, a, b, 'end');
+  store.set('text', t.value);
+  if ($('autocopy').checked) copy(); else say('Đã dán chữ trơn');
+});
+t.addEventListener('input', () => store.set('text', t.value));
+$('autocopy').addEventListener('change', e => store.set('autocopy', e.target.checked));
+$('clean').addEventListener('change', e => store.set('clean', e.target.checked));
+$('copy').onclick = copy;
+$('clear').onclick = () => { t.value = ''; store.set('text', ''); t.focus(); };
+$('save').onclick = () => {
+  if (!t.value.trim()) return;
+  const h = store.get('history', []);
+  h.unshift({ id: Date.now(), text: t.value });
+  store.set('history', h.slice(0, 50));
+  renderHistory(); say('Đã lưu');
+};
+function renderHistory() {
+  const box = $('history'); box.innerHTML = '';
+  store.get('history', []).forEach(item => {
+    const row = document.createElement('div');
+    const label = document.createElement('span');
+    label.textContent = new Date(item.id).toLocaleString('vi-VN') + ' — ' + item.text.slice(0, 80).replace(/\s+/g, ' ');
+    const load = document.createElement('button'); load.textContent = 'Mở';
+    load.onclick = () => { t.value = item.text; store.set('text', t.value); };
+    const del = document.createElement('button'); del.textContent = 'Xoá';
+    del.onclick = () => { store.set('history', store.get('history', []).filter(x => x.id !== item.id)); renderHistory(); };
+    row.append(label, load, del); box.append(row);
+  });
+}
+
+t.value = store.get('text', '');
+$('autocopy').checked = store.get('autocopy', true);
+$('clean').checked = store.get('clean', true);
+renderHistory();
+</script>
+</body>
+</html>
